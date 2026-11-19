@@ -31,11 +31,12 @@
 - Фаза 3 завершена по отчёту пользователя, коммит 1312c8da32be42e5351af1334cf0bf035c65ab54 подтверждён в истории: локаторы и взаимодействия перенесены в pages.SearchPage и pages.SearchResultsPage, тесты и TestBase перемещены в package tests. Структура и сохранение assertions подтверждены чтением файлов; браузерные проверки при обновлении плана не повторялись.
 - Фаза 4 завершена в этой сессии: Allure Java 3.0.0 (адаптеры) + Allure Report 2.46.1 CLI (генератор); проверки и ограничения — в разделе фазы 4.
 - Фаза 5 завершена по отчёту: workflow проверен локально и в реальном GitHub Actions — успешные, контролируемые и диагностические запуски перечислены в разделе фазы 5. Успешный запуск 38311448403 повторно подтверждён через API в фазе 8.
-- Фаза 6 завершена 2026-11-19: Telegram-уведомления из GitHub Actions реализованы, secrets добавлены владельцем, реальная отправка подтверждена в Telegram для BUILD_ERROR и SUCCESS; детали и run IDs — в разделе фазы 6. Фаза 7 отложена по решению пользователя в домашнее задание учащимся; не реализована и не отмечается выполненной в демонстрационном проекте.
+- Фаза 6 завершена 2026-11-19: Telegram-уведомления из GitHub Actions реализованы, secrets добавлены владельцем, реальная отправка подтверждена в Telegram для BUILD_ERROR и SUCCESS; детали и run IDs — в разделе фазы 6.
+- Фаза 7: `Jenkinsfile` добавлен 2026-11-19 и проверен синтаксисом на jenkins.qa.guru; реальный запуск на агенте не выполнен (анонимный доступ не позволяет build, Jenkins-учётные данные отсутствуют), поэтому интеграция помечается непроверенной.
 - Фаза 8 (Review) выполнена 2026-10-17: объём фаз 0–5 проверен без изменения кода, workflow и инфраструктуры; findings, проверки и ограничения — в разделе фазы 8.
 - Фаза 9 (доработка findings фазы 8) выполнена 2026-10-19: установлена причина sandbox-падения Chrome, обновлены Selenide и CfT, Pages публикуется только при зелёных тестах, усилены Actions permissions, добавлена очистка allure-results — детали и проверки в разделе фазы 9.
 
-Порядок дальнейшей работы: демонстрационный объём фаз 0–6 завершён и проверен; фаза 7 (Jenkins) выполняется отдельно после согласования окружения Jenkins и остаётся домашним заданием. Задание для учащихся (два варианта: полный путь 0–8 и короткий путь 6–7): [docs/homework.md](../homework.md).
+Порядок дальнейшей работы: демонстрационный объём фаз 0–6 завершён и проверен; для фазы 7 добавлен Jenkinsfile и проверен синтаксис, но для проверки интеграции нужен аутентифицированный запуск job на jenkins.qa.guru. Задание для учащихся (два варианта: полный путь 0–8 и короткий путь 6–7): [docs/homework.md](../homework.md).
 
 ## Фаза 0 — Baseline
 
@@ -260,23 +261,30 @@ gradle test --tests SearchTests.successfulSearchTest --rerun-tasks --console=pla
 
 ## Фаза 7 — Jenkins
 
-Статус: отложена в домашнее задание по решению пользователя; в текущей демонстрации не реализуется. Реализация начинается только после отдельного согласования окружения Jenkins. Наличие Jenkinsfile не означает проверку pipeline; запуск и публикация отчёта подтверждаются на реальном агенте либо остаются явно непроверенными.
+Статус: `Jenkinsfile` добавлен 2026-11-19; синтаксис проверен на jenkins.qa.guru через `POST /pipeline-model-converter/validate` (`Jenkinsfile successfully validated`). Реальный запуск на агенте не выполнен: анонимный доступ позволяет читать job/config/console, но не запускать build (`Item.Build:authenticated`), а Jenkins-учётные данные в сессии отсутствуют. Интеграция помечается непроверенной до создания job и прогона на `java-jdk21`.
 
-### Перед реализацией уточнить
+### Согласовано/установлено перед реализацией
 
-- [ ] Где находятся Jenkins и агент, доступ, ОС, label и доступные инструменты.
-- [ ] Доступность Java, браузеров, драйверов и Allure Report 2 CLI 2.46.1 (Node.js проекту не нужен).
-- [ ] Параметры запуска, имена Jenkins Credentials и Telegram-уведомления.
-- [ ] Способ генерации и публикации Allure Report 2 (CLI с закреплённым checksum, как в GitHub Actions, или Allure Jenkins plugin).
+- [x] Jenkins: https://jenkins.qa.guru/ (Jenkins 2.581); агенты `java-jdk21-jenkins-agent-1..5` online с labels `java`, `java-jdk21`, `docker`; built-in node имеет 0 executors.
+- [x] ОС/инструменты: Linux-агенты; на `java-jdk21` уже доказан локальный Chrome `151.0.7922.138 linux` в job `ui_tests_with_attachments` (#14) без Selenoid; remote-инфраструктура не используется.
+- [x] Параметры: `BROWSER=chrome` (choice), `BROWSER_SIZE=1920x1080`, `NOTIFY_TELEGRAM=true`; baseUrl `https://github.com`, headless=true — как в GitHub Actions.
+- [x] Credentials (только имена): `telegram-monitoring-bot-token` → `TELEGRAM_BOT_TOKEN`, `telegram-allure-notifications-group-chat-id` → `TELEGRAM_CHAT_ID`, `telegram-java-topic-id` → `TELEGRAM_TOPIC_ID`.
+- [x] Отчёт: выбран pinned Allure Report 2 CLI 2.46.1 (тот же SHA-256, что в GitHub Actions), скачиваемый в `build/allure-cli` внутри workspace; Allure Jenkins plugin не используется для генерации, т.к. на Jenkins наблюдается CLI 2.32.0 и совместимость именно с результатами Allure Java 3.0.0 не доказана.
 
-### Реализация и проверка
+### Реализация
 
-- [ ] Добавить Jenkinsfile с теми же командами тестов и генерации отчёта, что локально и в GitHub Actions.
-- [ ] Публиковать JUnit XML, сохранять результаты, вложения и отчёт при падениях.
-- [ ] Проверить выбранный способ генерации Report 2 на реальном агенте; не предполагать наличие плагина или CLI.
-- [ ] При отсутствии совместимости согласовать альтернативную генерацию и хранение отчёта.
-- [ ] Не устанавливать плагины и не менять Jenkins глобально без разрешения.
-- [ ] Разделить проверку Jenkinsfile и реальный запуск Jenkins; создать коммит.
+- [x] `Jenkinsfile`: agent label `java-jdk21`; валидация параметров; `./gradlew --no-daemon clean testClasses`, затем `./gradlew --no-daemon test` с `-DbaseUrl/-Dbrowser/-DbrowserSize/-Dheadless`; без `--no-sandbox` и без remote browser URL.
+- [x] Публикация в `post { always }`: `junit` для `build/test-results/test/*.xml` (`allowEmptyResults: true`), `archiveArtifacts` для `build/allure-results/**`, `build/test-results/test/**`, `build/reports/tests/test/**`; при успешной компиляции даже при падении тестов.
+- [x] Генерация отчёта только при наличии `build/allure-results/*-result.json`; иначе явный exit 1 и `REPORT_ERROR`; CLI проверяется по SHA-256, отчёт `build/allure-report`, артефакты `build/allure-report/**` сохраняются при падениях.
+- [x] Уведомление через `qa-guru/allure-notifications` Java jar `4.11.1` (проверенный на этом Jenkins путь для Allure 2: job `autotests-ai-multistack-tests-freestyle-java-allure2` #42) с `notifications/config.json`, `allureFolder=build/allure-report`, proxy socks5 `proxy.qaguru.school:7777`; пропускается при отсутствии `widgets/summary.json`; ошибки уведомления не меняют статус сборки.
+- [x] Статусы: падение assertion/тестов, ошибка компиляции, отсутствие результатов и ошибка генерации = `FAILURE`; `UNSTABLE` специально не используется (Gradle `test` падает с non-zero exit code, JUnit не должен маскировать это в unstable).
+
+### Проверки и ограничения
+
+- [x] `Jenkinsfile successfully validated` на `https://jenkins.qa.guru/pipeline-model-converter/validate` (анонимно); `git diff --check` чисто.
+- [ ] Реальный запуск на агенте не выполнен: success, assertion failure, compile failure, no-results, сохранение артефактов и Telegram-уведомление требуют создания Jenkins job от аутентифицированного пользователя; синтаксис не считается проверенной интеграцией.
+- [ ] Не проверено на агенте: совместимость Chrome 151 с Selenium 4.51/Selenide 7.19 в headless, доступность Maven Central/GitHub/chromedriver resolution, путь artifact-ссылки в уведомлении, фактическая отправка Telegram.
+- [ ] Плагины и глобальная конфигурация Jenkins не изменялись.
 
 ## Фаза 8 — Review
 
