@@ -251,11 +251,12 @@ gradle test --tests SearchTests.successfulSearchTest --rerun-tasks --console=pla
 
 - [x] Добавлены `scripts/telegram_notify.py` (stdlib Python) и шаг `Telegram notification` с `if: always()` в job `ui-tests`; секреты передаются только через env, URL с токеном и значения secrets не логируются.
 - [x] Статистика `passed/failed/errors/skipped` считается по элементам `<testcase>` во всех `build/test-results/test/*.xml`; вложенные `testsuite` не суммируются повторно. Отсутствующий XML → `Tests: not run`, битый XML → `statistics unavailable`; исходный failure при этом не маскируется.
-- [x] Сообщение содержит проект, CI, branch, short commit, статус, статистику и ссылку на run.
+- [x] Сообщение содержит проект, CI, branch, short commit, статус, статистику и полную кликабельную ссылку на run; форматирование — Telegram HTML (`parse_mode=HTML`): эмодзи-статус, жирные поля, commit в `<code>`, run URL в `<a>`; динамические значения экранируются.
 - [x] Проверяются HTTP status и `ok` в ответе Telegram API; timeout по умолчанию 10 с, переопределяется `TELEGRAM_TIMEOUT`.
-- [x] Локальные проверки без реальной отправки: `python3 scripts/test_telegram_notify.py -v` — 7 тестов OK (success со вложенными `testsuite` и несколькими XML, missing/broken XML, missing secrets, HTTP 500, `ok=false`, timeout); `python3 -m py_compile` OK; `actionlint` 1.7.12 — 0 ошибок; `git diff --check` чисто.
+- [x] Локальные проверки без реальной отправки: `python3 scripts/test_telegram_notify.py` — 8 тестов OK (success со вложенными `testsuite` и несколькими XML, missing/broken XML, HTML-экранирование, missing secrets, HTTP 500, `ok=false`, timeout); `python3 -m py_compile` OK; `actionlint` — 0 ошибок; `git diff --check` чисто.
 - [x] Реальные прогоны GitHub Actions и фактические сообщения Telegram подтверждены владельцем по скриншоту: run `44576951984` (commit `0239cee`) — `ui-tests` упал на установке Allure CLI (Maven Central 404), уведомление `BUILD_ERROR` / `Tests: not run` отправлено (`HTTP 200, ok=true`); run `44577344408` (commit `f214be6`) — `ui-tests` success, уведомление `SUCCESS` / `passed=3 failed=0 errors=0 skipped=0` отправлено (`HTTP 200, ok=true`). Для устойчивости к flaky Maven Central в `f214be6` добавлены retry и fallback `repo1.maven.org` для скачивания Allure CLI. После включения GitHub Pages владельцем (`build_type=workflow`, source `master` `/`) контрольный run `44579099722` (commit `643e26d`) полностью зелёный: `ui-tests` и `deploy-report` success, Telegram `HTTP 200, ok=true`, Pages https://mirkdun.github.io/getting-started-java-ai/ отвечает HTTP 200.
-- Коммиты фазы: `1baa26e` (Telegram notifications), `0239cee` (sanitized Telegram API errors), `f214be6` (Allure CLI download resilience).
+- [x] После перехода на HTML-формат контрольный run `44580663915` (commit `2dd08e6`) полностью зелёный: `ui-tests` и `deploy-report` success, Telegram `HTTP 200, ok=true`.
+- Коммиты фазы: `1baa26e` (Telegram notifications), `0239cee` (sanitized Telegram API errors), `f214be6` (Allure CLI download resilience), `2dd08e6` (HTML formatting).
 
 ## Фаза 7 — Jenkins
 
