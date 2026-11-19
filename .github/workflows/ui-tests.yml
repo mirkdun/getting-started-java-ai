@@ -89,7 +89,23 @@ jobs:
       - name: Install Allure Report CLI
         run: |
           archive="$RUNNER_TEMP/allure-commandline-$ALLURE_VERSION.tgz"
-          curl -fsSL -o "$archive" "https://repo.maven.apache.org/maven2/io/qameta/allure/allure-commandline/$ALLURE_VERSION/allure-commandline-$ALLURE_VERSION.tgz"
+          urls=(
+            "https://repo.maven.apache.org/maven2/io/qameta/allure/allure-commandline/$ALLURE_VERSION/allure-commandline-$ALLURE_VERSION.tgz"
+            "https://repo1.maven.org/maven2/io/qameta/allure/allure-commandline/$ALLURE_VERSION/allure-commandline-$ALLURE_VERSION.tgz"
+          )
+          downloaded=false
+          for url in "${urls[@]}"; do
+            rm -f "$archive"
+            if curl -fsSL --retry 2 --retry-delay 2 --retry-all-errors -o "$archive" "$url"; then
+              downloaded=true
+              break
+            fi
+            echo "::warning::Failed to download Allure CLI from $url"
+          done
+          if [[ "$downloaded" != "true" || ! -s "$archive" ]]; then
+            echo "::error::Failed to download Allure CLI $ALLURE_VERSION"
+            exit 1
+          fi
           echo "$ALLURE_SHA256  $archive" | sha256sum --check --strict
           tar -xzf "$archive" -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/allure-$ALLURE_VERSION/bin" >> "$GITHUB_PATH"
