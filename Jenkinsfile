@@ -9,9 +9,11 @@ pipeline {
     parameters {
         choice(name: 'BROWSER', choices: ['chrome'], description: 'Browser')
         string(name: 'BROWSER_SIZE', defaultValue: '1920x1080', description: 'Browser window size, WIDTHxHEIGHT')
-        booleanParam(name: 'NOTIFY_TELEGRAM', defaultValue: true, description: 'Send Telegram notification after the run')
+        booleanParam(name: 'NOTIFY_TELEGRAM', defaultValue: false, description: 'Send Telegram notification with project credentials')
     }
     environment {
+        BROWSER = "${params.BROWSER ?: 'chrome'}"
+        BROWSER_SIZE = "${params.BROWSER_SIZE ?: '1920x1080'}"
         BASE_URL = 'https://github.com'
         HEADLESS = 'true'
         ALLURE_VERSION = '2.46.1'
@@ -72,8 +74,15 @@ set -eu
             script {
                 env.REPORT_OUTCOME = 'skipped'
                 if (env.COMPILE_OUTCOME == 'success') {
-                    junit testResults: 'build/test-results/test/*.xml', allowEmptyResults: true
-                    archiveArtifacts artifacts: 'build/allure-results/**,build/test-results/test/**,build/reports/tests/test/**', allowEmptyArchive: true, fingerprint: false
+                    catchError(buildResult: 'FAILURE', catchInterruptions: false) {
+                        archiveArtifacts artifacts: 'build/allure-results/**,build/test-results/test/**,build/reports/tests/test/**', allowEmptyArchive: false
+                    }
+                    catchError(buildResult: 'FAILURE', catchInterruptions: false) {
+                        def tests = junit testResults: 'build/test-results/test/*.xml', skipMarkingBuildUnstable: true
+                        if (tests.failCount > 0) {
+                            error("JUnit reported ${tests.failCount} failed tests")
+                        }
+                    }
 
                     def reportStatus = sh(script: '''#!/bin/sh
 set -eu
@@ -103,8 +112,10 @@ tar -xzf "$ARCHIVE" -C build/allure-cli
 build/allure-cli/allure-${ALLURE_VERSION}/bin/allure generate build/allure-results --clean -o build/allure-report
 ''', returnStatus: true)
                     if (reportStatus == 0) {
-                        env.REPORT_OUTCOME = 'success'
-                        archiveArtifacts artifacts: 'build/allure-report/**', allowEmptyArchive: false, fingerprint: false
+                        catchError(buildResult: 'FAILURE', catchInterruptions: false) {
+                            archiveArtifacts artifacts: 'build/allure-report/**'
+                            env.REPORT_OUTCOME = 'success'
+                        }
                     } else {
                         env.REPORT_OUTCOME = 'failure'
                         echo "Allure report generation failed with exit code ${reportStatus}"
@@ -114,56 +125,47 @@ build/allure-cli/allure-${ALLURE_VERSION}/bin/allure generate build/allure-resul
                 }
 
                 if (params.NOTIFY_TELEGRAM) {
-                    try {
+                    catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE', catchInterruptions: false, message: 'Telegram delivery not confirmed') {
                         withCredentials([
-                            string(credentialsId: 'telegram-monitoring-bot-token', variable: 'TELEGRAM_BOT_TOKEN'),
-                            string(credentialsId: 'telegram-allure-notifications-group-chat-id', variable: 'TELEGRAM_CHAT_ID'),
-                            string(credentialsId: 'telegram-java-topic-id', variable: 'TELEGRAM_TOPIC_ID')
+                            string(credentialsId: 'getting-started-java-ai-telegram-bot-token', variable: 'TELEGRAM_BOT_TOKEN'),
+                            string(credentialsId: 'getting-started-java-ai-telegram-chat-id', variable: 'TELEGRAM_CHAT_ID')
                         ]) {
                             sh '''#!/bin/sh
 set -eu
-if [ ! -f build/allure-report/widgets/summary.json ]; then
-  echo 'No Allure summary; Telegram notification skipped'
-  exit 0
+if [ "$REPORT_OUTCOME" != success ] || [ ! -s build/allure-report/widgets/summary.json ]; then
+  export PROJECT_NAME="$JOB_NAME" CI_NAME=Jenkins RUN_URL="$BUILD_URL"
+  export BRANCH="${GIT_BRANCH:-unknown}" COMMIT_SHA="${GIT_COMMIT:-}"
+  junit_dir=build/test-results/test
+  if [ "${COMPILE_OUTCOME:-}" != success ]; then
+    status=BUILD_ERROR
+    junit_dir=/dev/null
+  elif [ "${TESTS_OUTCOME:-}" != success ]; then
+    status=TESTS_FAILED
+  else
+    status=REPORT_ERROR
+  fi
+  python3 scripts/telegram_notify.py --status "$status" --junit-dir "$junit_dir" | grep -F 'Telegram notification sent (HTTP 200, ok=true)'
+  exit
 fi
-mkdir -p notifications
-cat > notifications/config.json <<'EOF'
-{
-  "base": {
-    "project": "${JOB_BASE_NAME}",
-    "environment": "jenkins",
-    "comment": "Jenkins pipeline",
-    "reportLink": "${BUILD_URL}artifact/build/allure-report/index.html",
-    "language": "en",
-    "allureFolder": "build/allure-report",
-    "enableChart": true
-  },
-  "telegram": {
-    "token": "${TELEGRAM_BOT_TOKEN}",
-    "chat": "${TELEGRAM_CHAT_ID}",
-    "topic": "${TELEGRAM_TOPIC_ID}",
-    "replyTo": ""
-  },
-  "proxy": {
-    "type": "socks5",
-    "host": "proxy.qaguru.school",
-    "port": 7777
-  }
-}
-EOF
 JAR_VERSION="${ALLURE_NOTIFICATIONS_JAR_VERSION}"
 JAR="allure-notifications-${JAR_VERSION}.jar"
 if [ ! -f "$JAR" ]; then
-  curl -fsSL --retry 2 --retry-delay 2 --retry-all-errors -o "$JAR" \
-    "https://github.com/qa-guru/allure-notifications/releases/download/${JAR_VERSION}/${JAR}" \
-    || curl -fsSL --retry 2 --retry-delay 2 --retry-all-errors -o "$JAR" \
-    "https://github.com/qa-guru/allure-notifications/releases/download/v${JAR_VERSION}/${JAR}"
+  curl -fsSL --retry 2 -o "$JAR" "https://github.com/qa-guru/allure-notifications/releases/download/${JAR_VERSION}/${JAR}"
 fi
-java -DconfigFile=notifications/config.json -jar "$JAR"
+echo "480408b93291a27bf1b1ae19cd3a1475437c0634d4d558154403d8bc0cb61182  $JAR" | sha256sum --check --strict
+python3 - <<'PY' | java -Djava.awt.headless=true -DconfigFile=/dev/stdin -jar "$JAR" >/dev/null 2>&1
+import json, os
+env = os.environ
+print(json.dumps({
+    "base": {"project": env["JOB_NAME"], "environment": "Jenkins",
+             "comment": "Build #" + env["BUILD_NUMBER"], "reportLink": env["BUILD_URL"] + "artifact/",
+             "language": "en", "allureFolder": "build/allure-report", "enableChart": True},
+    "telegram": {"token": env["TELEGRAM_BOT_TOKEN"], "chat": env["TELEGRAM_CHAT_ID"]}
+}))
+PY
+echo 'Allure notification command completed'
 '''
                         }
-                    } catch (err) {
-                        echo "Telegram notification failed: ${err}"
                     }
                 } else {
                     echo 'Telegram notification disabled by NOTIFY_TELEGRAM=false'

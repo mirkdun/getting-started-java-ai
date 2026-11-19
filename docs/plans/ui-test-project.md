@@ -32,11 +32,11 @@
 - Фаза 4 завершена в этой сессии: Allure Java 3.0.0 (адаптеры) + Allure Report 2.46.1 CLI (генератор); проверки и ограничения — в разделе фазы 4.
 - Фаза 5 завершена по отчёту: workflow проверен локально и в реальном GitHub Actions — успешные, контролируемые и диагностические запуски перечислены в разделе фазы 5. Успешный запуск 38311448403 повторно подтверждён через API в фазе 8.
 - Фаза 6 завершена 2026-11-19: Telegram-уведомления из GitHub Actions реализованы, secrets добавлены владельцем, реальная отправка подтверждена в Telegram для BUILD_ERROR и SUCCESS; детали и run IDs — в разделе фазы 6.
-- Фаза 7: `Jenkinsfile` добавлен 2026-11-19 и проверен синтаксисом на jenkins.qa.guru; реальный запуск на агенте не выполнен (анонимный доступ не позволяет build, Jenkins-учётные данные отсутствуют), поэтому интеграция помечается непроверенной.
+- Фаза 7 проверена частично на jenkins.qa.guru: создана Pipeline job, проверены JUnit, генерация Allure и отрицательные сценарии. Зелёный UI-прогон и доставка Telegram не подтверждены.
 - Фаза 8 (Review) выполнена 2026-10-17: объём фаз 0–5 проверен без изменения кода, workflow и инфраструктуры; findings, проверки и ограничения — в разделе фазы 8.
 - Фаза 9 (доработка findings фазы 8) выполнена 2026-10-19: установлена причина sandbox-падения Chrome, обновлены Selenide и CfT, Pages публикуется только при зелёных тестах, усилены Actions permissions, добавлена очистка allure-results — детали и проверки в разделе фазы 9.
 
-Порядок дальнейшей работы: демонстрационный объём фаз 0–6 завершён и проверен; для фазы 7 добавлен Jenkinsfile и проверен синтаксис, но для проверки интеграции нужен аутентифицированный запуск job на jenkins.qa.guru. Задание для учащихся (два варианта: полный путь 0–8 и короткий путь 6–7): [docs/homework.md](../homework.md).
+Для завершения фазы 7 нужны агент с локальным рабочим Chrome и собственные Telegram credentials проекта. Задание для учащихся (два варианта: полный путь 0–8 и короткий путь 6–7): [docs/homework.md](../homework.md).
 
 ## Фаза 0 — Baseline
 
@@ -261,30 +261,24 @@ gradle test --tests SearchTests.successfulSearchTest --rerun-tasks --console=pla
 
 ## Фаза 7 — Jenkins
 
-Статус: `Jenkinsfile` добавлен 2026-11-19; синтаксис проверен на jenkins.qa.guru через `POST /pipeline-model-converter/validate` (`Jenkinsfile successfully validated`). Реальный запуск на агенте не выполнен: анонимный доступ позволяет читать job/config/console, но не запускать build (`Item.Build:authenticated`), а Jenkins-учётные данные в сессии отсутствуют. Интеграция помечается непроверенной до создания job и прогона на `java-jdk21`.
+**Статус на 2026-11-19:** [Pipeline job](https://jenkins.qa.guru/job/getting-started-java-ai-phase7/) создана и запущена. Для запуска до push используется sandboxed inline-копия `Jenkinsfile` с checkout публичного [коммита тестов](https://github.com/mirkdun/getting-started-java-ai/commit/1ffde25433e80398389f250a9d86f0177580e5e9). Дальнейшие изменения файла не попадают в job автоматически: после разрешённого push переключить её на **Pipeline script from SCM**, ветка `master`, путь `Jenkinsfile`.
 
-### Согласовано/установлено перед реализацией
+**Запуск:** Build with Parameters → `BROWSER=chrome`, `BROWSER_SIZE=1920x1080`; GitHub, headless, без remote URL и без `--no-sandbox`. Gradle Wrapper: `./gradlew --no-daemon clean testClasses`, затем `./gradlew --no-daemon test` с `-DbaseUrl/-Dbrowser/-DbrowserSize/-Dheadless`. После компиляции публикуются XML, Gradle HTML, `allure-results` с доступными вложениями. Отчёт генерируется командой `allure generate build/allure-results --clean -o build/allure-report`, CLI **2.46.1** проверяется по SHA-256 из Actions. Из-за Jenkins CSP скачивать папку отчёта как ZIP из **Artifacts** и открывать распакованный отчёт через `allure open`; глобальный CSP не менять.
 
-- [x] Jenkins: https://jenkins.qa.guru/ (Jenkins 2.581); агенты `java-jdk21-jenkins-agent-1..5` online с labels `java`, `java-jdk21`, `docker`; built-in node имеет 0 executors.
-- [x] ОС/инструменты: Linux-агенты; на `java-jdk21` уже доказан локальный Chrome `151.0.7922.138 linux` в job `ui_tests_with_attachments` (#14) без Selenoid; remote-инфраструктура не используется.
-- [x] Параметры: `BROWSER=chrome` (choice), `BROWSER_SIZE=1920x1080`, `NOTIFY_TELEGRAM=true`; baseUrl `https://github.com`, headless=true — как в GitHub Actions.
-- [x] Credentials (только имена): `telegram-monitoring-bot-token` → `TELEGRAM_BOT_TOKEN`, `telegram-allure-notifications-group-chat-id` → `TELEGRAM_CHAT_ID`, `telegram-java-topic-id` → `TELEGRAM_TOPIC_ID`.
-- [x] Отчёт: выбран pinned Allure Report 2 CLI 2.46.1 (тот же SHA-256, что в GitHub Actions), скачиваемый в `build/allure-cli` внутри workspace; Allure Jenkins plugin не используется для генерации, т.к. на Jenkins наблюдается CLI 2.32.0 и совместимость именно с результатами Allure Java 3.0.0 не доказана.
+| Проверка на агенте | Фактический результат |
+|---|---|
+| [Штатные UI-тесты, №2](https://jenkins.qa.guru/job/getting-started-java-ai-phase7/2/) | `FAILURE`, 3 ошибки запуска браузера; JUnit XML, 3 Allure results, Gradle HTML и отчёт сохранены. Не было DOM или скриншота: сессия Chrome не открылась. |
+| [Ошибка компиляции, №3](https://jenkins.qa.guru/job/getting-started-java-ai-phase7/3/) | `FAILURE` на `compileTestJava`; тесты и генерация не запускались, старых результатов в артефактах нет. |
+| [Проверка окружения, №4](https://jenkins.qa.guru/job/getting-started-java-ai-phase7/4/) | `java-jdk21-jenkins-agent-4`, Debian 13 x86_64, UID 0. Для CfT/ChromeDriver 155.0.8059.84 отсутствуют `libglib-2.0`, `libnss3`, `libxcb` и другие runtime-библиотеки. Label `java-jdk21` сам по себе не гарантирует локальный браузер. |
+| [Assertion, №7](https://jenkins.qa.guru/job/getting-started-java-ai-phase7/7/) | Изолированный JUnit-тест, **не UI**: 1 assertion failed → `FAILURE`, JUnit XML и Allure сохранены; [summary](https://jenkins.qa.guru/job/getting-started-java-ai-phase7/7/artifact/build/allure-report/widgets/summary.json) содержит `failed=1`. |
+| [Нет Allure results, №8](https://jenkins.qa.guru/job/getting-started-java-ai-phase7/8/) | Контрольный JUnit-тест прошёл. Перед публикацией каталог результатов перемещён в workspace: XML сохранён, отчёт не создан, итог `FAILURE` именно из-за отсутствия результатов. |
+| [Штатные UI-тесты на другом агенте, №9](https://jenkins.qa.guru/job/getting-started-java-ai-phase7/9/) | На `java-jdk21-jenkins-agent-2` (Temurin 21.0.13) компиляция прошла. Selenium Manager не смог получить Chrome/драйвер (код 65 при загрузке CfT), ни один из трёх тестов не открыл браузер. `FAILURE`; [архив Allure](https://jenkins.qa.guru/job/getting-started-java-ai-phase7/9/artifact/build/allure-report/*zip*/allure-report.zip) доступен. |
 
-### Реализация
+Тестовые ошибки остаются `FAILURE`, а не `UNSTABLE`. Временные ошибки вносились только в workspace job; после проверок из конфигурации удалены диагностические режимы и восстановлен label `java-jdk21`. Финальная конфигурация проверена чтением `config.xml`, `Jenkinsfile` — Declarative Linter целевого Jenkins. Настройки контроллера, плагины и ПО общих агентов не менялись.
 
-- [x] `Jenkinsfile`: agent label `java-jdk21`; валидация параметров; `./gradlew --no-daemon clean testClasses`, затем `./gradlew --no-daemon test` с `-DbaseUrl/-Dbrowser/-DbrowserSize/-Dheadless`; без `--no-sandbox` и без remote browser URL.
-- [x] Публикация в `post { always }`: `junit` для `build/test-results/test/*.xml` (`allowEmptyResults: true`), `archiveArtifacts` для `build/allure-results/**`, `build/test-results/test/**`, `build/reports/tests/test/**`; при успешной компиляции даже при падении тестов.
-- [x] Генерация отчёта только при наличии `build/allure-results/*-result.json`; иначе явный exit 1 и `REPORT_ERROR`; CLI проверяется по SHA-256, отчёт `build/allure-report`, артефакты `build/allure-report/**` сохраняются при падениях.
-- [x] Уведомление через `qa-guru/allure-notifications` Java jar `4.11.1` (проверенный на этом Jenkins путь для Allure 2: job `autotests-ai-multistack-tests-freestyle-java-allure2` #42) с `notifications/config.json`, `allureFolder=build/allure-report`, proxy socks5 `proxy.qaguru.school:7777`; пропускается при отсутствии `widgets/summary.json`; ошибки уведомления не меняют статус сборки.
-- [x] Статусы: падение assertion/тестов, ошибка компиляции, отсутствие результатов и ошибка генерации = `FAILURE`; `UNSTABLE` специально не используется (Gradle `test` падает с non-zero exit code, JUnit не должен маскировать это в unstable).
+**Telegram:** выключен по умолчанию. Включать `NOTIFY_TELEGRAM` только для доверенного кода после настройки проектных Secret Text `getting-started-java-ai-telegram-bot-token` и `getting-started-java-ai-telegram-chat-id`. С отчётом используется [allure-notifications 4.11.1](https://github.com/qa-guru/allure-notifications/releases/tag/4.11.1), без отчёта — текст со статусом через существующий скрипт. Доставка не проверена; чужие credentials не использовались.
 
-### Проверки и ограничения
-
-- [x] `Jenkinsfile successfully validated` на `https://jenkins.qa.guru/pipeline-model-converter/validate` (анонимно); `git diff --check` чисто.
-- [ ] Реальный запуск на агенте не выполнен: success, assertion failure, compile failure, no-results, сохранение артефактов и Telegram-уведомление требуют создания Jenkins job от аутентифицированного пользователя; синтаксис не считается проверенной интеграцией.
-- [ ] Не проверено на агенте: совместимость Chrome 151 с Selenium 4.51/Selenide 7.19 в headless, доступность Maven Central/GitHub/chromedriver resolution, путь artifact-ссылки в уведомлении, фактическая отправка Telegram.
-- [ ] Плагины и глобальная конфигурация Jenkins не изменялись.
+**Осталось:** выполнить три штатных теста и контролируемую UI-ошибку на Java 21 агенте с локальными Chrome/ChromeDriver и работающим sandbox под непривилегированным пользователем. Проверить PNG и HTML страницы при UI-ошибке и получение уведомления в чате владельца.
 
 ## Фаза 8 — Review
 
