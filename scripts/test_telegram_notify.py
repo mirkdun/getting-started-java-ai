@@ -115,13 +115,14 @@ class TelegramNotifyTests(unittest.TestCase):
         self.assertEqual(len(requests), 1)
         self.assertEqual(requests[0]["path"], "/bot123:fake-token/sendMessage")
         message = requests[0]["body"]["text"]
-        self.assertIn("UI tests: SUCCESS", message)
-        self.assertIn("Project: demo/project", message)
-        self.assertIn("CI: GitHub Actions", message)
-        self.assertIn("Branch: master", message)
-        self.assertIn("Commit: abcdef1", message)
-        self.assertIn("Tests: passed=1 failed=1 errors=1 skipped=1", message)
-        self.assertIn("Run: https://example.test/run/1", message)
+        self.assertEqual(requests[0]["body"]["parse_mode"], "HTML")
+        self.assertIn("✅ UI tests: SUCCESS", message)
+        self.assertIn("<b>Project:</b> demo/project", message)
+        self.assertIn("<b>CI:</b> GitHub Actions", message)
+        self.assertIn("<b>Branch:</b> master", message)
+        self.assertIn("<b>Commit:</b> <code>abcdef1</code>", message)
+        self.assertIn("<b>Tests:</b> passed=1 • failed=1 • errors=1 • skipped=1", message)
+        self.assertIn('<b>Run:</b> <a href="https://example.test/run/1">https://example.test/run/1</a>', message)
         self.assertIn("Telegram notification sent", output)
 
     def test_missing_junit_results_report_not_run(self):
@@ -133,8 +134,8 @@ class TelegramNotifyTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(len(requests), 1)
         message = requests[0]["body"]["text"]
-        self.assertIn("UI tests: BUILD_ERROR", message)
-        self.assertIn("Tests: not run (no JUnit XML results)", message)
+        self.assertIn("⚠️ UI tests: BUILD_ERROR", message)
+        self.assertIn("<b>Tests:</b> not run (no JUnit XML results)", message)
 
     def test_invalid_junit_xml_reports_statistics_unavailable(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -146,8 +147,24 @@ class TelegramNotifyTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(len(requests), 1)
         message = requests[0]["body"]["text"]
-        self.assertIn("UI tests: TESTS_FAILED", message)
-        self.assertIn("Tests: statistics unavailable (invalid JUnit XML)", message)
+        self.assertIn("❌ UI tests: TESTS_FAILED", message)
+        self.assertIn("<b>Tests:</b> statistics unavailable (invalid JUnit XML)", message)
+
+    def test_build_message_escapes_html_in_dynamic_values(self):
+        message = tn.build_message(
+            project="a<b>&",
+            ci="GitHub Actions",
+            branch="x<y",
+            commit="abcdef123",
+            status="SUCCESS",
+            stats={"passed": 1, "failed": 0, "errors": 0, "skipped": 0},
+            stats_error=None,
+            run_url="https://example.test/?a=1&b=<x>",
+        )
+        self.assertIn("a&lt;b&gt;&amp;", message)
+        self.assertIn("<b>Branch:</b> x&lt;y", message)
+        self.assertIn("https://example.test/?a=1&amp;b=&lt;x&gt;", message)
+        self.assertIn('href="https://example.test/?a=1&amp;b=&lt;x&gt;"', message)
 
     def test_missing_secrets_skip_without_http_request(self):
         with tempfile.TemporaryDirectory() as tmp:

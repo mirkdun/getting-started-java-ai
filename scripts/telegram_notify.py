@@ -1,4 +1,5 @@
 import argparse
+import html
 import json
 import os
 import socket
@@ -9,6 +10,15 @@ from urllib.request import Request, urlopen
 
 DEFAULT_API_BASE_URL = "https://api.telegram.org"
 DEFAULT_TIMEOUT_SECONDS = 10.0
+
+STATUS_EMOJI = {
+    "SUCCESS": "✅",
+    "TESTS_FAILED": "❌",
+    "BUILD_ERROR": "⚠️",
+    "REPORT_ERROR": "⚠️",
+    "FAILURE": "❌",
+    "CANCELLED": "🚫",
+}
 
 
 def local_name(tag):
@@ -46,32 +56,32 @@ def collect_junit_stats(junit_dir):
     return counts, None
 
 
+def escape_html(value):
+    return html.escape(str(value), quote=True)
+
+
 def build_message(project, ci, branch, commit, status, stats, stats_error, run_url):
     short_commit = commit[:7] if commit else "unknown"
-    lines = [
-        f"UI tests: {status}",
-        f"Project: {project}",
-        f"CI: {ci}",
-        f"Branch: {branch}",
-        f"Commit: {short_commit}",
-    ]
+    emoji = STATUS_EMOJI.get(status, "ℹ️")
+    lines = [f"{emoji} UI tests: {escape_html(status)}"]
+    lines.append(f"<b>Project:</b> {escape_html(project)}")
+    lines.append(f"<b>CI:</b> {escape_html(ci)}")
+    lines.append(f"<b>Branch:</b> {escape_html(branch)}")
+    lines.append(f"<b>Commit:</b> <code>{escape_html(short_commit)}</code>")
     if stats is None:
         if stats_error == "invalid":
-            lines.append("Tests: statistics unavailable (invalid JUnit XML)")
+            lines.append("<b>Tests:</b> statistics unavailable (invalid JUnit XML)")
         else:
-            lines.append("Tests: not run (no JUnit XML results)")
+            lines.append("<b>Tests:</b> not run (no JUnit XML results)")
     else:
         lines.append(
-            "Tests: "
-            f"passed={stats['passed']} "
-            f"failed={stats['failed']} "
-            f"errors={stats['errors']} "
-            f"skipped={stats['skipped']}"
+            f"<b>Tests:</b> passed={stats['passed']} • failed={stats['failed']} • errors={stats['errors']} • skipped={stats['skipped']}"
         )
         if sum(stats.values()) == 0:
-            lines.append("Tests: JUnit XML contains 0 test cases")
+            lines.append("<i>JUnit XML contains 0 test cases</i>")
     if run_url:
-        lines.append(f"Run: {run_url}")
+        escaped_url = escape_html(run_url)
+        lines.append(f'<b>Run:</b> <a href="{escaped_url}">{escaped_url}</a>')
     return "\n".join(lines)
 
 
@@ -96,7 +106,12 @@ def redact_secrets(text, token, chat_id):
 def send_telegram_message(token, chat_id, text, api_base_url, timeout):
     url = f"{api_base_url.rstrip('/')}/bot{token}/sendMessage"
     payload = json.dumps(
-        {"chat_id": chat_id, "text": text, "disable_web_page_preview": True}
+        {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        }
     ).encode("utf-8")
     request = Request(
         url,
