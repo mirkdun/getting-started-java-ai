@@ -188,6 +188,45 @@ jobs:
           path: build/allure-report
           retention-days: 14
 
+      - name: Telegram notification
+        if: ${{ always() }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PROJECT_NAME: ${{ github.repository }}
+          CI_NAME: GitHub Actions
+          BRANCH: ${{ github.ref_name }}
+          COMMIT_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_STATUS: ${{ job.status }}
+          COMPILE_OUTCOME: ${{ steps.compile.outcome }}
+          TESTS_OUTCOME: ${{ steps.tests.outcome }}
+          REPORT_OUTCOME: ${{ steps.report.outcome }}
+        run: |
+          if [[ "$JOB_STATUS" == "cancelled" || "$COMPILE_OUTCOME" == "cancelled" || "$TESTS_OUTCOME" == "cancelled" || "$REPORT_OUTCOME" == "cancelled" ]]; then
+            status="CANCELLED"
+          elif [[ "$COMPILE_OUTCOME" != "success" ]]; then
+            status="BUILD_ERROR"
+          elif [[ "$TESTS_OUTCOME" != "success" ]]; then
+            status="TESTS_FAILED"
+          elif [[ "$REPORT_OUTCOME" != "success" ]]; then
+            status="REPORT_ERROR"
+          elif [[ "$JOB_STATUS" == "failure" ]]; then
+            status="FAILURE"
+          else
+            status="SUCCESS"
+          fi
+          export NOTIFICATION_STATUS="$status"
+          if [[ ! -f scripts/telegram_notify.py ]]; then
+            echo "::warning::Telegram notification script is unavailable; notification skipped"
+            exit 0
+          fi
+          if ! command -v python3 > /dev/null; then
+            echo "::warning::python3 is unavailable; Telegram notification skipped"
+            exit 0
+          fi
+          python3 scripts/telegram_notify.py --junit-dir build/test-results/test
+
   deploy-report:
     needs: ui-tests
     if: ${{ !cancelled() && needs.ui-tests.result == 'success' && needs.ui-tests.outputs.report-generated == 'true' && github.ref_name == github.event.repository.default_branch }}
