@@ -31,11 +31,11 @@
 - Фаза 3 завершена по отчёту пользователя, коммит 1312c8da32be42e5351af1334cf0bf035c65ab54 подтверждён в истории: локаторы и взаимодействия перенесены в pages.SearchPage и pages.SearchResultsPage, тесты и TestBase перемещены в package tests. Структура и сохранение assertions подтверждены чтением файлов; браузерные проверки при обновлении плана не повторялись.
 - Фаза 4 завершена в этой сессии: Allure Java 3.0.0 (адаптеры) + Allure Report 2.46.1 CLI (генератор); проверки и ограничения — в разделе фазы 4.
 - Фаза 5 завершена по отчёту: workflow проверен локально и в реальном GitHub Actions — успешные, контролируемые и диагностические запуски перечислены в разделе фазы 5. Успешный запуск 38311448403 повторно подтверждён через API в фазе 8.
-- Фаза 6 реализована локально и проверена mock-тестами без реальной отправки; push, добавление secrets и реальная отправка ожидают отдельного разрешения. Фаза 7 отложена по решению пользователя в домашнее задание учащимся; не реализована и не отмечается выполненной в демонстрационном проекте.
+- Фаза 6 завершена 2026-11-19: Telegram-уведомления из GitHub Actions реализованы, secrets добавлены владельцем, реальная отправка подтверждена в Telegram для BUILD_ERROR и SUCCESS; детали и run IDs — в разделе фазы 6. Фаза 7 отложена по решению пользователя в домашнее задание учащимся; не реализована и не отмечается выполненной в демонстрационном проекте.
 - Фаза 8 (Review) выполнена 2026-10-17: объём фаз 0–5 проверен без изменения кода, workflow и инфраструктуры; findings, проверки и ограничения — в разделе фазы 8.
 - Фаза 9 (доработка findings фазы 8) выполнена 2026-10-19: установлена причина sandbox-падения Chrome, обновлены Selenide и CfT, Pages публикуется только при зелёных тестах, усилены Actions permissions, добавлена очистка allure-results — детали и проверки в разделе фазы 9.
 
-Порядок дальнейшей работы: демонстрационный объём фаз 0–5 завершён и проверен; фаза 6 (Telegram) реализована локально и ожидает разрешения на push/секреты/реальную отправку, фаза 7 выполняется отдельно после согласования окружения Jenkins. Задание для учащихся (два варианта: полный путь 0–8 и короткий путь 6–7): [docs/homework.md](../homework.md).
+Порядок дальнейшей работы: демонстрационный объём фаз 0–6 завершён и проверен; фаза 7 (Jenkins) выполняется отдельно после согласования окружения Jenkins и остаётся домашним заданием. Задание для учащихся (два варианта: полный путь 0–8 и короткий путь 6–7): [docs/homework.md](../homework.md).
 
 ## Фаза 0 — Baseline
 
@@ -239,13 +239,13 @@ gradle test --tests SearchTests.successfulSearchTest --rerun-tasks --console=pla
 
 ## Фаза 6 — Telegram
 
-Статус: реализация и локальная проверка без реальной отправки выполнены 2026-11-19; push, добавление secrets и реальная отправка ожидают отдельного разрешения. Jenkins не входит в фазу.
+Статус: завершена 2026-11-19; реализация, локальные mock-проверки и реальная отправка из GitHub Actions подтверждены. Jenkins не входит в фазу.
 
 ### Согласовано перед реализацией
 
 - [x] Уведомлять только из GitHub Actions workflow `UI tests`; Jenkins — фаза 7. Исходы: `SUCCESS`, `TESTS_FAILED`, `BUILD_ERROR`, `REPORT_ERROR`, `FAILURE` для прочих failed steps, `CANCELLED` по outcome шагов compile/tests/report и `job.status`; `deploy-report` в статус не входит.
 - [x] Secrets: repository secrets `TELEGRAM_BOT_TOKEN` и `TELEGRAM_CHAT_ID`; при отсутствии любого — warning и exit 0 без отправки. При ошибке Telegram API или timeout — warning и exit 0, исходный статус job не меняется.
-- [ ] Разрешение на реальную отправку сообщения и push ветки с фазой — не получено; реальная отправка не выполнялась.
+- [x] Разрешение на реальную отправку и push получено; secrets `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` добавлены владельцем в `mirkdun/getting-started-java-ai`, значения в чат не передавались.
 
 ### Реализация и проверка
 
@@ -254,7 +254,8 @@ gradle test --tests SearchTests.successfulSearchTest --rerun-tasks --console=pla
 - [x] Сообщение содержит проект, CI, branch, short commit, статус, статистику и ссылку на run.
 - [x] Проверяются HTTP status и `ok` в ответе Telegram API; timeout по умолчанию 10 с, переопределяется `TELEGRAM_TIMEOUT`.
 - [x] Локальные проверки без реальной отправки: `python3 scripts/test_telegram_notify.py -v` — 7 тестов OK (success со вложенными `testsuite` и несколькими XML, missing/broken XML, missing secrets, HTTP 500, `ok=false`, timeout); `python3 -m py_compile` OK; `actionlint` 1.7.12 — 0 ошибок; `git diff --check` чисто.
-- [ ] Реальный прогон GitHub Actions и фактическая отправка Telegram — только после добавления secrets и отдельного разрешения.
+- [x] Реальные прогоны GitHub Actions и фактические сообщения Telegram подтверждены владельцем по скриншоту: run `44576951984` (commit `0239cee`) — `ui-tests` упал на установке Allure CLI (Maven Central 404), уведомление `BUILD_ERROR` / `Tests: not run` отправлено (`HTTP 200, ok=true`); run `44577344408` (commit `f214be6`) — `ui-tests` success, уведомление `SUCCESS` / `passed=3 failed=0 errors=0 skipped=0` отправлено (`HTTP 200, ok=true`). Для устойчивости к flaky Maven Central в `f214be6` добавлены retry и fallback `repo1.maven.org` для скачивания Allure CLI. `deploy-report` в этих runs падает отдельно: GitHub Pages не включён в форке (`Ensure GitHub Pages has been enabled`), к фазе 6 не относится.
+- Коммиты фазы: `1baa26e` (Telegram notifications), `0239cee` (sanitized Telegram API errors), `f214be6` (Allure CLI download resilience).
 
 ## Фаза 7 — Jenkins
 
