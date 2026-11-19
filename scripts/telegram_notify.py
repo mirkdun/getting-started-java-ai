@@ -75,6 +75,24 @@ def build_message(project, ci, branch, commit, status, stats, stats_error, run_u
     return "\n".join(lines)
 
 
+def response_description(response):
+    try:
+        body = response.read()
+        data = json.loads(body.decode("utf-8"))
+    except Exception:
+        return ""
+    if isinstance(data, dict) and isinstance(data.get("description"), str):
+        return data["description"][:200]
+    return ""
+
+
+def redact_secrets(text, token, chat_id):
+    for secret in (token, chat_id):
+        if secret:
+            text = text.replace(secret, "<redacted>")
+    return text
+
+
 def send_telegram_message(token, chat_id, text, api_base_url, timeout):
     url = f"{api_base_url.rstrip('/')}/bot{token}/sendMessage"
     payload = json.dumps(
@@ -91,6 +109,9 @@ def send_telegram_message(token, chat_id, text, api_base_url, timeout):
             status_code = response.status
             body = response.read()
     except HTTPError as error:
+        description = redact_secrets(response_description(error), token, chat_id)
+        if description:
+            return False, f"HTTP {error.code}: {description}"
         return False, f"HTTP {error.code}"
     except URLError as error:
         reason = getattr(error, "reason", error)
@@ -107,6 +128,11 @@ def send_telegram_message(token, chat_id, text, api_base_url, timeout):
     except (UnicodeDecodeError, json.JSONDecodeError):
         return False, f"invalid JSON response (HTTP {status_code})"
     if not isinstance(result, dict) or result.get("ok") is not True:
+        description = ""
+        if isinstance(result, dict) and isinstance(result.get("description"), str):
+            description = redact_secrets(result["description"][:200], token, chat_id)
+        if description:
+            return False, f"Telegram API ok=false (HTTP {status_code}): {description}"
         return False, f"Telegram API ok=false (HTTP {status_code})"
     return True, f"HTTP {status_code}, ok=true"
 
