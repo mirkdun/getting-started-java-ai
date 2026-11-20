@@ -197,7 +197,8 @@ config = {
     "base": {"project": env["JOB_NAME"], "environment": "Jenkins",
              "comment": "Build #" + env["BUILD_NUMBER"], "reportLink": env["BUILD_URL"] + "artifact/",
              "language": "en", "allureFolder": "build/allure-report", "enableChart": True},
-    "telegram": {"token": env["TELEGRAM_BOT_TOKEN"], "chat": env["TELEGRAM_CHAT_ID"], "replyTo": ""}
+    "telegram": {"token": env["TELEGRAM_BOT_TOKEN"], "chat": env["TELEGRAM_CHAT_ID"], "replyTo": ""},
+    "proxy": {"type": "socks5", "host": "proxy.qaguru.school", "port": 7777}
 }
 run = subprocess.run(
     ["java", "-Djava.awt.headless=true", "-DconfigFile=/dev/stdin", "-jar", sys.argv[1]],
@@ -206,7 +207,9 @@ response = run.stdout.rpartition(b"===RESPONSE===")[2]
 header, _, body = response.partition(b"BODY:")
 status = header.strip().split()
 if len(status) != 3 or status[:2] != [b"STATUS", b"CODE:"] or not status[2].isdigit():
-    for marker, reason in [(b"Fontconfig", "agent fonts"), (b"UnsatisfiedLinkError", "agent native libraries"),
+    for marker, reason in [(b"SOCKS5 proxy rejected", "proxy authentication"), (b"SOCKS5 proxy requested username/password", "proxy authentication"),
+                           (b"SOCKS5 CONNECT failed", "proxy connection"), (b"ConnectTimeoutException", "network timeout"),
+                           (b"Fontconfig", "agent fonts"), (b"UnsatisfiedLinkError", "agent native libraries"),
                            (b"UnknownHostException", "DNS"), (b"SocketTimeoutException", "network timeout"),
                            (b"ConnectException", "network connection"), (b"SSLHandshakeException", "TLS")]:
         if marker in run.stdout:
