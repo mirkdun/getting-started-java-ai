@@ -8,6 +8,7 @@ pipeline {
     }
     parameters {
         choice(name: 'BROWSER', choices: ['chrome'], description: 'Browser')
+        choice(name: 'BROWSER_MODE', choices: ['local', 'selenoid'], description: 'Local agent Chrome or QA.GURU Selenoid: https://selenoid.qa.guru/#/statistics')
         string(name: 'BROWSER_SIZE', defaultValue: '1920x1080', description: 'Browser window size, WIDTHxHEIGHT')
         booleanParam(name: 'NOTIFY_TELEGRAM', defaultValue: false, description: 'Send Telegram notification with project credentials')
     }
@@ -26,9 +27,13 @@ pipeline {
                 sh '''#!/bin/sh
 set -eu
 if [ "${BROWSER}" != "chrome" ]; then
-  echo "Unsupported browser: only the agent Chrome is used"
+  echo "Unsupported browser: only Chrome is supported"
   exit 1
 fi
+case "$BROWSER_MODE" in
+  local|selenoid) ;;
+  *) echo "Unsupported BROWSER_MODE"; exit 1 ;;
+esac
 if ! printf '%s' "${BROWSER_SIZE}" | grep -Eq '^[0-9]{3,4}x[0-9]{3,4}$'; then
   echo "BROWSER_SIZE must match WIDTHxHEIGHT, e.g. 1920x1080"
   exit 1
@@ -43,8 +48,12 @@ set -eu
 echo "JAVA_HOME=${JAVA_HOME:-<unset>}"
 java -version
 ./gradlew --version
-(google-chrome --version || chromium --version || chromium-browser --version || true)
-(chromedriver --version || true)
+if [ "$BROWSER_MODE" = local ]; then
+  (google-chrome --version || chromium --version || chromium-browser --version || true)
+  (chromedriver --version || true)
+else
+  echo 'Remote Chrome: https://selenoid.qa.guru/#/statistics'
+fi
 '''
             }
         }
@@ -57,15 +66,27 @@ java -version
         stage('Run UI tests') {
             when { expression { return env.COMPILE_OUTCOME == 'success' } }
             steps {
-                sh '''#!/bin/sh
+                script {
+                    def remote = params.BROWSER_MODE == 'selenoid'
+                    def bindings = remote ? [usernamePassword(credentialsId: 'getting-started-java-ai-selenoid',
+                        usernameVariable: 'SELENOID_USERNAME', passwordVariable: 'SELENOID_PASSWORD')] : []
+                    withCredentials(bindings) {
+                        env.TESTS_STARTED = 'true'
+                        sh '''#!/bin/sh
 set -eu
+driver="$BROWSER"
+if [ "$BROWSER_MODE" = selenoid ]; then
+  driver=tests.SelenoidChromeDriverFactory
+fi
 ./gradlew --no-daemon test --console=plain \
   -DbaseUrl="${BASE_URL}" \
-  "-Dbrowser=${BROWSER}" \
+  "-Dbrowser=${driver}" \
   "-DbrowserSize=${BROWSER_SIZE}" \
   -Dheadless="${HEADLESS}"
 '''
-                script { env.TESTS_OUTCOME = 'success' }
+                    }
+                    env.TESTS_OUTCOME = 'success'
+                }
             }
         }
     }
@@ -73,7 +94,7 @@ set -eu
         always {
             script {
                 env.REPORT_OUTCOME = 'skipped'
-                if (env.COMPILE_OUTCOME == 'success') {
+                if (env.TESTS_STARTED == 'true') {
                     catchError(buildResult: 'FAILURE', catchInterruptions: false) {
                         archiveArtifacts artifacts: 'build/allure-results/**,build/test-results/test/**,build/reports/tests/test/**', allowEmptyArchive: false
                     }
@@ -121,7 +142,7 @@ build/allure-cli/allure-${ALLURE_VERSION}/bin/allure generate build/allure-resul
                         echo "Allure report generation failed with exit code ${reportStatus}"
                     }
                 } else {
-                    echo 'Compile did not succeed; skipping result publishing'
+                    echo 'Tests did not start; no test results to publish'
                 }
 
                 if (params.NOTIFY_TELEGRAM) {
@@ -136,7 +157,7 @@ if [ "$REPORT_OUTCOME" != success ] || [ ! -s build/allure-report/widgets/summar
   export PROJECT_NAME="$JOB_NAME" CI_NAME=Jenkins RUN_URL="$BUILD_URL"
   export BRANCH="${GIT_BRANCH:-unknown}" COMMIT_SHA="${GIT_COMMIT:-}"
   junit_dir=build/test-results/test
-  if [ "${COMPILE_OUTCOME:-}" != success ]; then
+  if [ "${TESTS_STARTED:-}" != true ]; then
     status=BUILD_ERROR
     junit_dir=/dev/null
   elif [ "${TESTS_OUTCOME:-}" != success ]; then
