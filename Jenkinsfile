@@ -147,12 +147,28 @@ build/allure-cli/allure-${ALLURE_VERSION}/bin/allure generate build/allure-resul
 
                 if (params.NOTIFY_TELEGRAM) {
                     catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE', catchInterruptions: false, message: 'Telegram delivery not confirmed') {
+                        sh '''#!/bin/sh
+set -eu
+if ! command -v python3 >/dev/null 2>&1; then
+  [ "$(uname -s)/$(uname -m)" = Linux/x86_64 ] || { echo 'Install Python 3 on this agent'; exit 1; }
+  dir=build/notification-runtime
+  mkdir -p "$dir"
+  archive="$dir/python.tar.gz"
+  curl -fsSL --retry 2 -o "$archive" 'https://github.com/astral-sh/python-build-standalone/releases/download/20261013/cpython-3.13.16+20261013-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz'
+  echo "d0080766b6b74aeb81e1949ef0d9a20e6c17f7b160fb295a69b936ccb17660be  $archive" | sha256sum --check --strict
+  tar -xzf "$archive" -C "$dir"
+fi
+'''
                         withCredentials([
-                            string(credentialsId: 'getting-started-java-ai-telegram-bot-token', variable: 'TELEGRAM_BOT_TOKEN'),
+                            string(credentialsId: 'telegram-bot-token', variable: 'TELEGRAM_BOT_TOKEN'),
                             string(credentialsId: 'getting-started-java-ai-telegram-chat-id', variable: 'TELEGRAM_CHAT_ID')
                         ]) {
                             sh '''#!/bin/sh
 set -eu
+if ! command -v python3 >/dev/null 2>&1; then
+  PATH="$PWD/build/notification-runtime/python/bin:$PATH"
+  export PATH
+fi
 if [ "$REPORT_OUTCOME" != success ] || [ ! -s build/allure-report/widgets/summary.json ]; then
   export PROJECT_NAME="$JOB_NAME" CI_NAME=Jenkins RUN_URL="$BUILD_URL"
   export BRANCH="${GIT_BRANCH:-unknown}" COMMIT_SHA="${GIT_COMMIT:-}"
@@ -174,17 +190,40 @@ if [ ! -f "$JAR" ]; then
   curl -fsSL --retry 2 -o "$JAR" "https://github.com/qa-guru/allure-notifications/releases/download/${JAR_VERSION}/${JAR}"
 fi
 echo "480408b93291a27bf1b1ae19cd3a1475437c0634d4d558154403d8bc0cb61182  $JAR" | sha256sum --check --strict
-python3 - <<'PY' | java -Djava.awt.headless=true -DconfigFile=/dev/stdin -jar "$JAR" >/dev/null 2>&1
-import json, os
+python3 - "$JAR" <<'PY'
+import json, os, subprocess, sys
 env = os.environ
-print(json.dumps({
+config = {
     "base": {"project": env["JOB_NAME"], "environment": "Jenkins",
              "comment": "Build #" + env["BUILD_NUMBER"], "reportLink": env["BUILD_URL"] + "artifact/",
              "language": "en", "allureFolder": "build/allure-report", "enableChart": True},
-    "telegram": {"token": env["TELEGRAM_BOT_TOKEN"], "chat": env["TELEGRAM_CHAT_ID"]}
-}))
+    "telegram": {"token": env["TELEGRAM_BOT_TOKEN"], "chat": env["TELEGRAM_CHAT_ID"], "replyTo": ""}
+}
+run = subprocess.run(
+    ["java", "-Djava.awt.headless=true", "-DconfigFile=/dev/stdin", "-jar", sys.argv[1]],
+    input=json.dumps(config).encode(), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=90)
+response = run.stdout.rpartition(b"===RESPONSE===")[2]
+header, _, body = response.partition(b"BODY:")
+status = header.strip().split()
+if len(status) != 3 or status[:2] != [b"STATUS", b"CODE:"] or not status[2].isdigit():
+    for marker, reason in [(b"Fontconfig", "agent fonts"), (b"UnsatisfiedLinkError", "agent native libraries"),
+                           (b"UnknownHostException", "DNS"), (b"SocketTimeoutException", "network timeout"),
+                           (b"ConnectException", "network connection"), (b"SSLHandshakeException", "TLS")]:
+        if marker in run.stdout:
+            sys.exit(f"Telegram: no HTTP response confirmed ({reason})")
+    sys.exit("Telegram: no HTTP response confirmed")
+code = int(status[2])
+if code != 200 or run.returncode != 0:
+    sys.exit(f"Telegram: notification not confirmed (HTTP {code})")
+try:
+    data = json.JSONDecoder().raw_decode(body.decode(errors="replace").lstrip())[0]
+except ValueError:
+    sys.exit("Telegram: invalid response")
+message = data.get("result") if isinstance(data, dict) and data.get("ok") is True else None
+if not isinstance(message, dict) or not message.get("message_id"):
+    sys.exit("Telegram: no message confirmed")
+print("Telegram notification sent (HTTP 200, ok=true)")
 PY
-echo 'Allure notification command completed'
 '''
                         }
                     }
