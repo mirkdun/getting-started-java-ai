@@ -159,10 +159,15 @@ if ! command -v python3 >/dev/null 2>&1; then
   tar -xzf "$archive" -C "$dir"
 fi
 '''
-                        withCredentials([
+                        def telegramBindings = [
                             string(credentialsId: 'telegram-bot-token', variable: 'TELEGRAM_BOT_TOKEN'),
                             string(credentialsId: 'getting-started-java-ai-telegram-chat-id', variable: 'TELEGRAM_CHAT_ID')
-                        ]) {
+                        ]
+                        if (env.REPORT_OUTCOME == 'success') {
+                            telegramBindings << usernamePassword(credentialsId: 'getting-started-java-ai-telegram-proxy',
+                                usernameVariable: 'MICROSOCKS_USER', passwordVariable: 'MICROSOCKS_PASS')
+                        }
+                        withCredentials(telegramBindings) {
                             sh '''#!/bin/sh
 set -eu
 if ! command -v python3 >/dev/null 2>&1; then
@@ -208,6 +213,7 @@ header, _, body = response.partition(b"BODY:")
 status = header.strip().split()
 if len(status) != 3 or status[:2] != [b"STATUS", b"CODE:"] or not status[2].isdigit():
     for marker, reason in [(b"SOCKS5 proxy rejected", "proxy authentication"), (b"SOCKS5 proxy requested username/password", "proxy authentication"),
+                           (b"SOCKS5 proxy authentication failed", "proxy authentication"),
                            (b"SOCKS5 CONNECT failed", "proxy connection"), (b"ConnectTimeoutException", "network timeout"),
                            (b"Fontconfig", "agent fonts"), (b"UnsatisfiedLinkError", "agent native libraries"),
                            (b"UnknownHostException", "DNS"), (b"SocketTimeoutException", "network timeout"),
