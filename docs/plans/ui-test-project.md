@@ -23,7 +23,7 @@
 
 ## Текущее состояние
 
-Последняя сверка файлов и git: 2026-11-19 (фаза 6, локальная реализация без реальной отправки).
+Последняя сверка файлов и git: 2026-11-22 (фаза 7: Jenkins, Selenoid и Telegram); более ранние фазы сверялись в свои даты.
 
 - Фаза 0 завершена; исходный запуск проверен в этой переписке.
 - Фаза 1 завершена по отчёту пользователя. Коммит e55ae45ae599cdfa83cfac608dbe96b42d0a3916 и соответствующая конфигурация подтверждены чтением репозитория; браузерные проверки фазы 1 при сохранении плана не повторялись.
@@ -32,11 +32,11 @@
 - Фаза 4 завершена в этой сессии: Allure Java 3.0.0 (адаптеры) + Allure Report 2.46.1 CLI (генератор); проверки и ограничения — в разделе фазы 4.
 - Фаза 5 завершена по отчёту: workflow проверен локально и в реальном GitHub Actions — успешные, контролируемые и диагностические запуски перечислены в разделе фазы 5. Успешный запуск 38311448403 повторно подтверждён через API в фазе 8.
 - Фаза 6 завершена 2026-11-19: Telegram-уведомления из GitHub Actions реализованы, secrets добавлены владельцем, реальная отправка подтверждена в Telegram для BUILD_ERROR и SUCCESS; детали и run IDs — в разделе фазы 6.
-- Фаза 7 проверена частично на jenkins.qa.guru: создана Pipeline job, проверены JUnit, генерация Allure и отрицательные сценарии. Зелёный UI-прогон и доставка Telegram не подтверждены.
+- Фаза 7 завершена 2026-11-22: в Jenkins UI-тесты прошли в QA.GURU Selenoid (3/3), JUnit/Allure-артефакты сохранены, Telegram-уведомление подтверждено Bot API (`HTTP 200`, `ok=true`) и владельцем. Задача пока работает из sandboxed inline Pipeline; коммиты фазы 7 локальные и не запушены в `origin/master`.
 - Фаза 8 (Review) выполнена 2026-10-17: объём фаз 0–5 проверен без изменения кода, workflow и инфраструктуры; findings, проверки и ограничения — в разделе фазы 8.
 - Фаза 9 (доработка findings фазы 8) выполнена 2026-10-19: установлена причина sandbox-падения Chrome, обновлены Selenide и CfT, Pages публикуется только при зелёных тестах, усилены Actions permissions, добавлена очистка allure-results — детали и проверки в разделе фазы 9.
 
-Для завершения фазы 7 нужны агент с локальным рабочим Chrome и собственные Telegram credentials проекта. Задание для учащихся (два варианта: полный путь 0–8 и короткий путь 6–7): [docs/homework.md](../homework.md).
+Для режима `local` фазы 7 по-прежнему нужен Jenkins-агент с локальным рабочим Chrome; Telegram credentials проекта добавлены и проверены в Selenoid-режиме. Задание для учащихся (два варианта: полный путь 0–8 и короткий путь 6–7): [docs/homework.md](../homework.md).
 
 ## Фаза 0 — Baseline
 
@@ -261,7 +261,7 @@ gradle test --tests SearchTests.successfulSearchTest --rerun-tasks --console=pla
 
 ## Фаза 7 — Jenkins
 
-**Статус на 2026-11-22:** в [проектной сборке №9](https://jenkins.qa.guru/job/mirkdun-getting-started-java-ai/job/ui-tests/9/) все три UI-теста прошли в Selenoid (JUnit и Allure — 3/3). При `NOTIFY_TELEGRAM=true` Bot API подтвердил принятие уведомления (`HTTP 200`, `ok=true`), а владелец подтвердил получение сообщения в личной переписке с `@gsjavaai_tests_bot`. Для запуска до push используется sandboxed inline-копия `Jenkinsfile` с checkout публичного [коммита тестов](https://github.com/mirkdun/getting-started-java-ai/commit/1ffde25433e80398389f250a9d86f0177580e5e9). Дальнейшие изменения файла не попадают в job автоматически: после разрешённого push переключить её на **Pipeline script from SCM**, ветка `master`, путь `Jenkinsfile`.
+**Статус на 2026-11-22:** в [проектной сборке №9](https://jenkins.qa.guru/job/mirkdun-getting-started-java-ai/job/ui-tests/9/) все три UI-теста прошли в Selenoid (JUnit и Allure — 3/3). При `NOTIFY_TELEGRAM=true` Bot API подтвердил принятие уведомления (`HTTP 200`, `ok=true`), а владелец подтвердил получение сообщения в личной переписке с `@gsjavaai_tests_bot`. Для запуска до push используется sandboxed inline-копия `Jenkinsfile` с checkout публичного [коммита тестов](https://github.com/mirkdun/getting-started-java-ai/commit/1ffde25433e80398389f250a9d86f0177580e5e9). Дальнейшие изменения файла не попадают в job автоматически: после разрешённого push переключить её на **Pipeline script from SCM**, ветка `master`, путь `Jenkinsfile`. Коммиты фазы 7 (начиная с `87709c2`) на момент записи находятся только в локальной ветке `master`; `origin/master` указывает на `1ffde25`.
 
 **Запуск:** Build with Parameters → `BROWSER=chrome`, `BROWSER_SIZE=1920x1080`. `BROWSER_MODE=local` (по умолчанию) использует Chrome агента. В отдельно согласованном режиме `selenoid` Gradle и отчёт остаются на агенте, а Chrome запускается в QA.GURU Selenoid. Оба режима используют GitHub, headless и не добавляют `--no-sandbox`. Gradle Wrapper: `./gradlew --no-daemon clean testClasses`, затем `./gradlew --no-daemon test` с `-DbaseUrl/-Dbrowser/-DbrowserSize/-Dheadless`. После запуска тестов публикуются XML, Gradle HTML и `allure-results` с доступными вложениями, в том числе при падении. Отчёт генерируется командой `allure generate build/allure-results --clean -o build/allure-report`, CLI **2.46.1** проверяется по SHA-256 из Actions. Из-за Jenkins CSP скачивать папку отчёта как ZIP из **Artifacts** и открывать распакованный отчёт через `allure open`; глобальный CSP не менять.
 
@@ -400,7 +400,7 @@ Blocker-дефектов не найдено; код не менялся. Заф
 
 - `allowed_actions`/`sha_pinning_required` на уровне репозитория — сузить (allowlist + sha_pinning_required=true) при следующем согласовании; workflow уже закреплён по SHA на уровне файла.
 - Визуальная приёмка обновлённого Pages-отчёта после первого зелёного run на master.
-- Фазы 6–7 — домашнее задание, не реализуются.
+- На момент фазы 9 фазы 6–7 были домашним заданием; позже фазы 6–7 выполнены, см. их разделы выше.
 
 ## Базовые команды проверки
 
